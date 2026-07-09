@@ -12,6 +12,7 @@ const {
   hasEnoughBalance,
   deductBalance,
   canChangeStatus,
+  generateNextId,
 } = require("../services/timeOffServices.js");
 
 // ============================================
@@ -36,8 +37,6 @@ const employeeBalances = {
 // ============================================
 
 let timeOffRequests = require("../data/timeoffRequests.js");
-
-let nextId = 2;
 
 // ============================================
 // ROUTES
@@ -108,6 +107,8 @@ router.get("/:id", (req, res, next) => {
 // POST /time-off - Create new time off request
 // Validation handled by Joi middleware
 router.post("/", validate(createTimeOffSchema), (req, res, next) => {
+  let nextId = generateNextId(timeOffRequests);
+
   try {
     const { employeeId, employeeName, startDate, endDate, type, reason } =
       req.body;
@@ -116,7 +117,7 @@ router.post("/", validate(createTimeOffSchema), (req, res, next) => {
     const daysRequested = calculateDays(startDate, endDate);
 
     const newRequest = {
-      id: nextId++,
+      id: nextId,
       employeeId: parseInt(employeeId),
       employeeName: employeeName || `Employee ${employeeId}`,
       startDate,
@@ -261,6 +262,7 @@ router.delete("/:id", (req, res, next) => {
     }
 
     request.status = "cancelled";
+    request.cancelledAt = new Date().toISOString();
 
     res.json({
       success: true,

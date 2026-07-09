@@ -134,6 +134,13 @@ function canChangeStatus(currentStatus, newStatus, transitions) {
   return transitions[currentStatus].includes(newStatus);
 }
 
+//creates new Id for time off requests
+function generateNextId(timeOffRequests) {
+  return timeOffRequests.length > 0
+    ? Math.max(...timeOffRequests.map((r) => r.id)) + 1
+    : 1;
+}
+
 // ============================================
 // Export Helpers
 // ============================================
@@ -143,4 +150,5 @@ module.exports = {
   hasEnoughBalance,
   deductBalance,
   canChangeStatus,
+  generateNextId,
 };
