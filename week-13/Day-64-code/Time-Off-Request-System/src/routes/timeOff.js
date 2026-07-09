@@ -12,8 +12,9 @@ const {
   hasEnoughBalance,
   deductBalance,
   canChangeStatus,
-  generateNextId,
 } = require("../services/timeOffServices.js");
+
+const { generateNextId } = require("../services/generateID.js");
 
 // ============================================
 // STATE MACHINE & BALANCE TRACKING
