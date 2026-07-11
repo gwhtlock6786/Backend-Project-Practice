@@ -16,6 +16,8 @@ const PORT = process.env.PORT || 3000;
 // Import routers
 const timeOffRouter = require("./routes/timeOff");
 const shiftsRouter = require("./routes/shifts-route");
+const shiftSwapsRouter = require("./routes/shiftSwaps");
+const laborCost = require("./routes/laborCosts");
 
 // Import middleware
 const errorHandler = require("./middleware/errorHandler");
@@ -39,6 +41,8 @@ app.use((req, res, next) => {
 // Mount routers
 app.use("/time-off", timeOffRouter);
 app.use("/shifts", shiftsRouter);
+app.use("/shift-swaps", shiftSwapsRouter);
+app.use("/labor-cost", laborCost);
 
 // Root route - API info
 app.get("/", (req, res) => {

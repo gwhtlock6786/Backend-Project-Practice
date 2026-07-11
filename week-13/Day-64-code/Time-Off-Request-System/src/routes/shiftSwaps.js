@@ -107,7 +107,7 @@ const STATE_TRANSITIONS = {
 // array from our data folder to simulate one.
 //
 // ============================================
-const { shiftSwaps } = require("../data/shift-swap-data.js");
+const shiftSwaps = require("../data/shift-swap-data.js");
 
 // ============================================
 // GET ALL SHIFT SWAPS
