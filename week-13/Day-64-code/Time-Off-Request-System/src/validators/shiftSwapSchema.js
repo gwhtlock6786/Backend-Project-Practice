@@ -241,6 +241,53 @@ const reviewShiftSwapSchema = Joi.object({
     "string.min": "Reviewer name must be at least 2 characters.",
     "string.max": "Reviewer name cannot exceed 100 characters.",
   }),
+
+  rejectionReason: Joi.string().max(500).optional().messages({
+    "string.max": "Rejection reason cannot exceed 500 characters.",
+  }),
+});
+
+// ============================================
+// Cancel Shift Swap Request Schema
+// ============================================
+
+/**
+ * When cancelling a shift swap request,
+ * we need to know who is attempting to cancel it.
+ *
+ * The route will handle:
+ *
+ * - checking the request exists
+ * - checking the requester owns the request
+ * - checking the status is still pending
+ * - changing status to cancelled
+ *
+ * Joi only verifies that requesterId
+ * is valid input.
+ */
+
+const cancelShiftSwapSchema = Joi.object({
+  // ------------------------------------------
+  // Requester ID
+  // ------------------------------------------
+
+  /**
+   * Employee attempting to cancel
+   * the shift swap request.
+   *
+   * Rules:
+   * - Must be a number
+   * - Must be a whole number
+   * - Must be positive
+   * - Required field
+   */
+
+  requesterId: Joi.number().integer().positive().required().messages({
+    "any.required": "Requester ID is required.",
+    "number.base": "Requester ID must be a number.",
+    "number.integer": "Requester ID must be a whole number.",
+    "number.positive": "Requester ID must be positive.",
+  }),
 });
 
 // ============================================
@@ -251,4 +298,5 @@ module.exports = {
   createShiftSwapSchema,
   updateShiftSwapSchema,
   reviewShiftSwapSchema,
+  cancelShiftSwapSchema,
 };

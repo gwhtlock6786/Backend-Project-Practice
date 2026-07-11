@@ -46,6 +46,7 @@ const {
   createShiftSwapSchema,
   updateShiftSwapSchema,
   reviewShiftSwapSchema,
+  cancelShiftSwapSchema,
 } = require("../validators/shiftSwapSchema.js");
 
 const { canChangeStatus } = require("../services/timeOffServices");
@@ -81,6 +82,20 @@ const STATE_TRANSITIONS = {
   cancelled: [],
 };
 
+/*
+    Current State      Allowed Next States
+
+    pending     ---> approved
+                 ---> rejected
+                 ---> cancelled
+
+    approved    ---> none
+
+    rejected    ---> none
+
+    cancelled   ---> none
+*/
+
 // ============================================
 // IN-MEMORY DATA
 // ============================================
@@ -113,8 +128,10 @@ const { shiftSwaps } = require("../data/shift-swap-data.js");
 // ============================================
 
 router.get("/", (req, res) => {
-  // Create a copy so the original array
-  // cannot be modified accidentally.
+  // Create a shallow copy.
+  //
+  // This allows us to filter the data
+  // without changing the original array.
   let filtered = [...shiftSwaps];
 
   // ------------------------------------------
@@ -179,3 +196,439 @@ router.get("/:id", (req, res, next) => {
     next(err);
   }
 });
+
+// ============================================
+// CREATE SHIFT SWAP REQUEST
+// ============================================
+//
+// POST /shift-swaps
+//
+// Creates a new shift swap request.
+//
+// Workflow:
+//
+// 1. Employee creates swap request
+// 2. Request starts as "pending"
+// 3. Manager reviews request
+// 4. Request can become:
+//        approved
+//        rejected
+//        cancelled
+//
+// Example:
+//
+// POST /shift-swaps
+//
+// ============================================
+
+router.post("/", validate(createShiftSwapSchema), (req, res, next) => {
+  try {
+    const {
+      requesterId,
+      requesterName,
+      targetEmployeeId,
+      targetEmployeeName,
+      requesterShiftId,
+      targetShiftId,
+      reason,
+    } = req.body;
+
+    // ------------------------------------------
+    // Create New Shift Swap Object
+    // ------------------------------------------
+    //
+    // At this point Joi has already validated:
+    //
+    // ✔ Required fields exist
+    // ✔ IDs are positive numbers
+    // ✔ Names meet length requirements
+    // ✔ Reason is within allowed length
+    //
+    // This allows our route to focus only
+    // on creating the data.
+    //
+    // ------------------------------------------
+
+    const newSwap = {
+      // Generate the next unique ID
+      //
+      // Example:
+      //
+      // Existing IDs:
+      // [1, 2, 3]
+      //
+      // New ID:
+      // 4
+      //
+      id: generateNextId(shiftSwaps),
+
+      // --------------------------------------
+      // Employee Requesting Swap
+      // --------------------------------------
+
+      requesterId,
+
+      requesterName,
+
+      // --------------------------------------
+      // Employee Receiving Swap
+      // --------------------------------------
+
+      targetEmployeeId,
+
+      targetEmployeeName,
+
+      // --------------------------------------
+      // Shift Information
+      // --------------------------------------
+      //
+      // requesterShiftId:
+      // The shift the employee wants to give away
+      //
+      // targetShiftId:
+      // The shift they want instead
+      //
+      // --------------------------------------
+
+      requesterShiftId,
+
+      targetShiftId,
+
+      // Optional explanation from employee
+      reason: reason || "",
+
+      // --------------------------------------
+      // Initial Status
+      // --------------------------------------
+      //
+      // Every new request starts as pending.
+      //
+      // We NEVER allow users to create their
+      // own approved request because approval
+      // must happen through the workflow.
+      //
+      // --------------------------------------
+
+      status: "pending",
+
+      // --------------------------------------
+      // Audit Information
+      // --------------------------------------
+      //
+      // These fields track the history of
+      // the request.
+      //
+      // When created:
+      //
+      // reviewedAt = null
+      // reviewedBy = null
+      //
+      // They are updated later when a manager
+      // approves or rejects the request.
+      //
+      // --------------------------------------
+
+      createdAt: new Date().toISOString(),
+
+      reviewedAt: null,
+
+      reviewedBy: null,
+    };
+
+    // Add the new request to our data store
+    //
+    // In production this would be:
+    //
+    // INSERT INTO shift_swaps (...)
+    //
+    // For practice:
+    //
+    // array.push()
+    //
+    shiftSwaps.push(newSwap);
+
+    res.status(201).json({
+      success: true,
+
+      message: "Shift swap request created successfully",
+
+      data: newSwap,
+    });
+  } catch (err) {
+    // Send errors to centralized
+    // error-handling middleware.
+    //
+    // Example:
+    //
+    // Database error
+    // Unexpected error
+    //
+    next(err);
+  }
+});
+
+// ============================================
+// APPROVE SHIFT SWAP REQUEST
+// ============================================
+//
+// PATCH /shift-swaps/:id/approve
+//
+// Workflow:
+//
+// pending
+//    |
+//    ↓
+// approved
+//
+// Only pending requests can be approved.
+//
+// Example:
+//
+// PATCH /shift-swaps/1/approve
+//
+// Body:
+//
+// {
+//   "reviewedBy": "Manager Smith"
+// }
+//
+// ============================================
+
+router.patch(
+  "/:id/approve",
+  validate(reviewShiftSwapSchema),
+  (req, res, next) => {
+    try {
+      // Route parameters arrive as strings
+      // Convert id into a number
+      const id = parseInt(req.params.id);
+
+      // Find the shift swap request
+      const swap = shiftSwaps.find((swap) => swap.id === id);
+
+      // ------------------------------------------
+      // Check Request Exists
+      // ------------------------------------------
+
+      if (!swap) {
+        throw new NotFoundError("Shift swap request");
+      }
+
+      // ------------------------------------------
+      // Validate State Transition
+      // ------------------------------------------
+      //
+      // We only allow:
+      //
+      // pending → approved
+      //
+      // Approved, rejected, and cancelled
+      // requests cannot change.
+      //
+      // ------------------------------------------
+
+      if (!canChangeStatus(swap.status, "approved", STATE_TRANSITIONS)) {
+        throw new ConflictError(
+          `Cannot approve request. Current status is ${swap.status}`,
+        );
+      }
+
+      // ------------------------------------------
+      // Update Request
+      // ------------------------------------------
+
+      swap.status = "approved";
+
+      swap.reviewedAt = new Date().toISOString();
+
+      swap.reviewedBy = req.body.reviewedBy;
+
+      // ------------------------------------------
+      // Return Updated Request
+      // ------------------------------------------
+
+      res.json({
+        success: true,
+        message: "Shift swap request approved successfully",
+        data: swap,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ============================================
+// REJECT SHIFT SWAP REQUEST
+// ============================================
+//
+// PATCH /shift-swaps/:id/reject
+//
+// Workflow:
+//
+// pending
+//    |
+//    ↓
+// rejected
+//
+// Example:
+//
+// PATCH /shift-swaps/1/reject
+//
+// Body:
+//
+// {
+//   "reviewedBy": "Manager Smith",
+//   "rejectionReason": "Coverage unavailable"
+// }
+//
+// ============================================
+
+router.patch(
+  "/:id/reject",
+  validate(reviewShiftSwapSchema),
+  (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id);
+
+      const swap = shiftSwaps.find((swap) => swap.id === id);
+
+      // ------------------------------------------
+      // Check Request Exists
+      // ------------------------------------------
+
+      if (!swap) {
+        throw new NotFoundError("Shift swap request");
+      }
+
+      // ------------------------------------------
+      // Validate State Transition
+      // ------------------------------------------
+
+      if (!canChangeStatus(swap.status, "rejected", STATE_TRANSITIONS)) {
+        throw new ConflictError(
+          `Cannot reject request. Current status is ${swap.status}`,
+        );
+      }
+
+      // ------------------------------------------
+      // Update Request
+      // ------------------------------------------
+
+      swap.status = "rejected";
+
+      swap.reviewedAt = new Date().toISOString();
+
+      swap.reviewedBy = req.body.reviewedBy;
+
+      // Store optional rejection explanation
+
+      swap.rejectionReason = req.body.rejectionReason || "";
+
+      res.json({
+        success: true,
+        message: "Shift swap request rejected successfully",
+        data: swap,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ============================================
+// CANCEL SHIFT SWAP REQUEST
+// ============================================
+//
+// PATCH /shift-swaps/:id/cancel
+//
+// Only the employee who created
+// the request can cancel it.
+//
+// Workflow:
+//
+// pending
+//    |
+//    ↓
+// cancelled
+//
+// Example:
+//
+// PATCH /shift-swaps/1/cancel
+//
+// Body:
+//
+// {
+//   "requesterId": 1
+// }
+//
+// ============================================
+
+router.patch(
+  "/:id/cancel",
+  validate(cancelShiftSwapSchema),
+  (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id);
+
+      const swap = shiftSwaps.find((swap) => swap.id === id);
+
+      // ------------------------------------------
+      // Check Request Exists
+      // ------------------------------------------
+
+      if (!swap) {
+        throw new NotFoundError("Shift swap request");
+      }
+
+      // ------------------------------------------
+      // Authorization Check
+      // ------------------------------------------
+      //
+      // Make sure the person cancelling
+      // owns the request.
+      //
+      // Example:
+      //
+      // Request belongs to Maria (id 1)
+      //
+      // James cannot cancel it.
+      //
+      // ------------------------------------------
+
+      if (swap.requesterId !== req.body.requesterId) {
+        throw new ForbiddenError(
+          "You can only cancel your own shift swap request",
+        );
+      }
+
+      // ------------------------------------------
+      // Validate State Transition
+      // ------------------------------------------
+
+      if (!canChangeStatus(swap.status, "cancelled", STATE_TRANSITIONS)) {
+        throw new ConflictError(
+          `Cannot cancel request. Current status is ${swap.status}`,
+        );
+      }
+
+      // ------------------------------------------
+      // Update Request
+      // ------------------------------------------
+
+      swap.status = "cancelled";
+
+      swap.cancelledAt = new Date().toISOString();
+
+      res.json({
+        success: true,
+        message: "Shift swap request cancelled successfully",
+        data: swap,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+module.exports = router;
